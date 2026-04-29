@@ -13,9 +13,15 @@ const io = new Server(server);
 io.on('connection', (socket) => {
   console.log('A user connected');
 
-  socket.on("create-incident",async (clientData)=>{
+  socket.on("join-org", (data) => {
+    const { joinCode } = JSON.parse(data);
+    socket.join(`org:${joinCode}`);
+    socket.joinCode = joinCode;
+    console.log(`User joined org room: org:${joinCode}`);
+  });
 
-    try{
+  socket.on("create-incident", async (clientData) => {
+    try {
       const data = JSON.parse(clientData);
 
       const newIncident = await IncidentModel.create({
@@ -24,17 +30,16 @@ io.on('connection', (socket) => {
         organization: data.organizationId,
       });
 
-      socket.broadcast.emit("receive-incident",newIncident);
-    }
-    catch(err){
+      io.to(`org:${data.joinCode}`).emit("receive-incident", newIncident);
+
+    } catch (err) {
       console.error("Error creating incident:", err);
       socket.emit("error", "Failed to create incident");
     }
   });
 
-  socket.on("update-incident",async (clientData)=>{
-
-    try{
+  socket.on("update-incident", async (clientData) => {
+    try {
       const data = JSON.parse(clientData);
 
       const updatedIncident = await IncidentModel.findByIdAndUpdate(
@@ -47,39 +52,38 @@ io.on('connection', (socket) => {
         { new: true }
       );
 
-      if(updatedIncident){
-        socket.broadcast.emit("receive-incident",updatedIncident);
+      if (updatedIncident) {
+        io.to(`org:${updatedIncident.joinCode}`).emit("receive-incident", updatedIncident);
       }
-    }
-    catch(err){
+    } catch (err) {
       console.error("Error updating incident:", err);
       socket.emit("error", "Failed to update incident");
     }
   });
 
-  socket.on("send-message",async (clientData)=>{
+  socket.on("send-message", async (clientData) => {
     try {
       const data = JSON.parse(clientData);
       const incident = await IncidentModel.findById(data.incidentId);
-      if(incident){
+
+      if (incident) {
         const newMessage = await MessageModel.create({
           content: data.message,
           sender: data.userId,
           incident: data.incidentId
         });
 
-        socket.broadcast.emit("receive-message",JSON.stringify(newMessage));
+        io.to(`org:${incident.joinCode}`).emit("receive-message", JSON.stringify(newMessage));
       }
     } catch (error) {
       console.error("Error sending message:", error);
       socket.emit("error", "Failed to send message");
     }
-  })
-
+  });
 
   socket.on('disconnect', () => {
     console.log('A user disconnected');
   });
 });
 
-export default io;
+export {io,server};
