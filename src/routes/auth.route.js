@@ -30,6 +30,20 @@ router.post('/login', authController.login);
 */
 router.post('/register', authController.register);
 
+/*
+    @route GET /auth/repos
+    @desc Get all repositories for authenticated user
+    @access Private
+*/
+router.get('/repos', authController.getUserRepos);
+
+/*
+    @route GET /auth/commits
+    @desc Get commits for all or specific repository
+    @access Private
+*/
+router.get('/commits', authController.getUserCommits);
+
 
 
 export default router;
