@@ -14,6 +14,7 @@ const refererSchema = new mongoose.Schema({
     },
 });
 
+refererSchema.index({ referer: 1, organization: 1 }, { unique: true });
 const Referer = mongoose.model("Referer", refererSchema);
 
 export default Referer;
