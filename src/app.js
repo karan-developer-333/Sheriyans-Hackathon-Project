@@ -8,12 +8,14 @@ import cors from 'cors';
 import authRoutes from './routes/auth.route.js';
 import adminRoutes from './routes/admin.route.js';
 import userRoutes from './routes/user.route.js';
+import organizationRoutes from './routes/organization.route.js';
+import incidentRoutes from './routes/incident.route.js';
 
 
 const app = express();
 
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:5173',
+  origin: process.env.CLIENT_URL || ["https://f1rr36mb-5173.inc1.devtunnels.ms", 'http://localhost:5173'],
   methods:["GET","POST","PUT","DELETE","OPTIONS"],
   allowedHeaders:["Content-type","Authorization"],
   credentials: true
@@ -30,5 +32,7 @@ app.get('/', (req, res) => {
 app.use('/auth', authRoutes);
 app.use('/admin', adminRoutes);
 app.use('/user', userRoutes);
+app.use('/organization', organizationRoutes);
+app.use('/incidents', incidentRoutes);
 
 export default app;
