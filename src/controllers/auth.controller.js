@@ -161,11 +161,47 @@ const register = async (req, res) => {
 
 
 
+const me = async (req, res) => {
+    try {
+        const user = await User.findById(req.user._id);
+        if (!user) {
+            return res.status(404).json({ error: "User not found" });
+        }
+        res.status(200).json({
+            user: {
+                id: user._id,
+                username: user.username,
+                email: user.email,
+                role: user.role,
+            },
+        });
+    } catch (error) {
+        console.error("Me error:", error);
+        res.status(500).json({ error: "Internal server error" });
+    }
+};
+
+const logout = async (req, res) => {
+    try {
+        res.clearCookie("token", {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "production",
+            sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+        });
+        res.status(200).json({ message: "Logged out successfully" });
+    } catch (error) {
+        console.error("Logout error:", error);
+        res.status(500).json({ error: "Internal server error" });
+    }
+};
+
 export default {
     githubAuth,
     githubcallback,
     login,
     register,
     getUserRepos,
-    getUserCommits
+    getUserCommits,
+    me,
+    logout,
 }

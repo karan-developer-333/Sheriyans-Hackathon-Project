@@ -6,8 +6,11 @@ const validateAdmin = (req,res,next)=>{
     next();
 }
 
+
 const validateOrganization = (req,res,next)=>{
+    console.log("Validating organization access for user:", req.user);
     if(req.user.role !== "organization"){
+        
         return res.status(403).json({error: "Forbidden"});
     }
     next();

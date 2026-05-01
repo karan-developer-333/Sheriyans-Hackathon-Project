@@ -7,22 +7,27 @@ export const getEmployees = async (req, res) => {
     try {
         const userId = req.user._id;
 
-        // Find all organizations the user is associated with via Referer collection
+        // Find organizations the user is a member of via Referer collection
         const userReferers = await Referer.find({ referer: userId })
             .populate('organization');
 
-        if (!userReferers || userReferers.length === 0) {
+        // Find organizations the user owns via OrganizationModel
+        const ownedOrgs = await OrganizationModel.find({ owner: userId });
+
+        if ((!userReferers || userReferers.length === 0) && ownedOrgs.length === 0) {
             return res.status(404).json({ error: "No organizations found" });
         }
 
-        // Collect all members from all organizations the user belongs to
         const allMembers = [];
         const organizations = [];
+        const processedOrgIds = new Set();
 
+        // Process organizations from Referer (user is a member)
         for (const ref of userReferers) {
             const org = ref.organization;
-            
-            // Get all referers for this organization to find members
+            if (!org || processedOrgIds.has(org._id.toString())) continue;
+            processedOrgIds.add(org._id.toString());
+
             const orgReferers = await Referer.find({ organization: org._id })
                 .populate('referer', 'username email role');
 
@@ -33,23 +38,42 @@ export const getEmployees = async (req, res) => {
                 isOwner: org.owner.toString() === userId.toString()
             });
 
-            // Add owner as a member
-            const owner = await OrganizationModel.findById(org._id)
-                .populate('owner', 'username email role');
-            
-            if (owner) {
+            for (const memberRef of orgReferers) {
                 allMembers.push({
-                    ...owner.owner.toObject(),
-                    organizationRole: 'owner',
+                    _id: memberRef.referer._id,
+                    username: memberRef.referer.username,
+                    email: memberRef.referer.email,
+                    role: memberRef.referer.role,
+                    organizationRole: 'member',
                     organizationId: org._id,
                     organizationName: org.organizationName
                 });
             }
+        }
 
-            // Add all referers as members
+        // Process owned organizations (user is the owner)
+        for (const org of ownedOrgs) {
+            if (processedOrgIds.has(org._id.toString())) continue;
+            processedOrgIds.add(org._id.toString());
+
+            const orgReferers = await Referer.find({ organization: org._id })
+                .populate('referer', 'username email role');
+
+            organizations.push({
+                _id: org._id,
+                organizationName: org.organizationName,
+                organizationJoinCode: org.organizationJoinCode,
+                isOwner: true
+            });
+
+            // Exclude owner from members list - only add Referer members
             for (const memberRef of orgReferers) {
+                if (memberRef.referer._id.toString() === userId.toString()) continue;
                 allMembers.push({
-                    ...memberRef.referer.toObject(),
+                    _id: memberRef.referer._id,
+                    username: memberRef.referer.username,
+                    email: memberRef.referer.email,
+                    role: memberRef.referer.role,
                     organizationRole: 'member',
                     organizationId: org._id,
                     organizationName: org.organizationName
@@ -76,29 +100,39 @@ export const getMyOrg = async (req, res) => {
     try {
         const userId = req.user._id;
 
-        // Find user's organization via Referer collection
-        const userReferer = await Referer.findOne({ referer: userId })
-            .populate('organization');
+        // First check if user owns an organization
+        let org = await OrganizationModel.findOne({ owner: userId }).populate('owner', 'username email role');
+        let isOwner = !!org;
 
-        if (!userReferer) {
-            return res.status(404).json({ 
-                error: "You don't belong to any organization",
-                message: "You need to join or create an organization first"
-            });
+        // If not an owner, find via Referer collection
+        if (!org) {
+            const userReferer = await Referer.findOne({ referer: userId })
+                .populate('organization');
+
+            if (!userReferer) {
+                return res.status(404).json({ 
+                    error: "You don't belong to any organization",
+                    message: "You need to join or create an organization first"
+                });
+            }
+
+            org = userReferer.organization;
+            isOwner = false;
         }
-
-        const org = userReferer.organization;
 
         // Get all members of this organization via Referer
         const orgReferers = await Referer.find({ organization: org._id })
             .populate('referer', 'username email role');
 
-        // Get owner details
-        const organizationWithOwner = await OrganizationModel.findById(org._id)
-            .populate('owner', 'username email role');
-
-        // Determine the user's role in the organization
-        const isOwner = organizationWithOwner.owner._id.toString() === userId.toString();
+        // Exclude owner from members list
+        const members = orgReferers
+            .filter(ref => ref.referer._id.toString() !== userId.toString())
+            .map(ref => ({
+                _id: ref.referer._id,
+                username: ref.referer.username,
+                email: ref.referer.email,
+                role: ref.referer.role
+            }));
 
         res.status(200).json({
             message: "Organization fetched successfully",
@@ -106,19 +140,14 @@ export const getMyOrg = async (req, res) => {
                 _id: org._id,
                 organizationName: org.organizationName,
                 organizationJoinCode: org.organizationJoinCode,
-                owner: {
-                    _id: organizationWithOwner.owner._id,
-                    username: organizationWithOwner.owner.username,
-                    email: organizationWithOwner.owner.email,
-                    role: organizationWithOwner.owner.role
-                },
-                members: orgReferers.map(ref => ({
-                    _id: ref.referer._id,
-                    username: ref.referer.username,
-                    email: ref.referer.email,
-                    role: ref.referer.role
-                })),
-                memberCount: orgReferers.length
+                owner: isOwner ? {
+                    _id: org.owner._id,
+                    username: org.owner.username,
+                    email: org.owner.email,
+                    role: org.owner.role
+                } : null,
+                members,
+                memberCount: members.length
             },
             userRole: isOwner ? 'owner' : 'member'
         });
@@ -159,6 +188,16 @@ export const getMyOwnOrganization = async (req, res) => {
         const orgReferers = await Referer.find({ organization: organization._id })
             .populate('referer', 'username email role');
 
+        // Exclude owner from members list
+        const members = orgReferers
+            .filter(ref => ref.referer._id.toString() !== userId.toString())
+            .map(ref => ({
+                _id: ref.referer._id,
+                username: ref.referer.username,
+                email: ref.referer.email,
+                role: ref.referer.role
+            }));
+
         res.status(200).json({
             message: "Organization data fetched successfully",
             organization: {
@@ -171,13 +210,8 @@ export const getMyOwnOrganization = async (req, res) => {
                     email: organization.owner.email,
                     role: organization.owner.role
                 },
-                members: orgReferers.map(ref => ({
-                    _id: ref.referer._id,
-                    username: ref.referer.username,
-                    email: ref.referer.email,
-                    role: ref.referer.role
-                })),
-                memberCount: orgReferers.length
+                members,
+                memberCount: members.length
             },
             accessLevel: 'owner',
             isOwner: true
@@ -185,6 +219,32 @@ export const getMyOwnOrganization = async (req, res) => {
 
     } catch (error) {
         console.error("Error fetching organization:", error);
+        res.status(500).json({ error: "Internal server error" });
+    }
+};
+
+// Remove an employee from the organization (owner only)
+export const removeEmployee = async (req, res) => {
+    try {
+        const { userId } = req.params;
+
+        const org = await OrganizationModel.findOne({ owner: req.user._id });
+        if (!org) {
+            return res.status(403).json({ error: "You do not own this organization" });
+        }
+
+        if (org.owner.toString() === userId) {
+            return res.status(400).json({ error: "Cannot remove yourself" });
+        }
+
+        const removed = await Referer.findOneAndDelete({ referer: userId, organization: org._id });
+        if (!removed) {
+            return res.status(404).json({ error: "Employee not found in organization" });
+        }
+
+        res.status(200).json({ message: "Employee removed successfully" });
+    } catch (error) {
+        console.error("Error removing employee:", error);
         res.status(500).json({ error: "Internal server error" });
     }
 };

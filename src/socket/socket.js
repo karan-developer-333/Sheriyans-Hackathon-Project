@@ -96,22 +96,28 @@ io.on('connection', (socket) => {
   socket.on("send-message", async (clientData) => {
     try {
       const data = JSON.parse(clientData);
-      console.log('[Socket] Message for incident:', data.incidentId, 'joinCode:', data.joinCode);
-      console.log('[Socket] Message content:', data);
-      // const newMessage = await MessageModel.create({
-      //   content: data.message,
-      //   sender: data.userId,
-      //   incident: data.incidentId
-      // });
+      console.log('[Socket] Message data received:', { incidentId: data.incidentId, userId: data.userId, senderName: data.senderName });
+
+      if (!data.userId) {
+        return socket.emit("error", "User ID is required");
+      }
+
+      const newMessage = await MessageModel.create({
+        content: data.message,
+        sender: data.userId,
+        incident: data.incidentId
+      });
+
+      console.log('[Socket] Message saved to DB:', newMessage._id);
 
       io.to(`org:${data.joinCode}`).emit("receive-message", JSON.stringify({
-        // content: newMessage.content,
-        // sender: newMessage.sender,
-        // tempId: data.tempId
-
-        content: data.message,
-        sender: "KUTTA",
-        tempId: data.tempId
+        _id: newMessage._id,
+        content: newMessage.content,
+        sender: data.senderName || "Unknown",
+        senderId: data.userId,
+        tempId: data.tempId,
+        incidentId: data.incidentId,
+        createdAt: newMessage.createdAt
       }));
     } catch (error) {
       console.error("[Socket] Error sending message:", error);
